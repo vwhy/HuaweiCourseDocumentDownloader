@@ -1,24 +1,29 @@
-# coding: utf-8
-#----------------------------------------------------------------------------
-# created by: snow
-# repo: https://github.com/penguin806/HuaweiCourseDocumentDownloader
-# version: 1.2
-# ---------------------------------------------------------------------------
 import datetime
-import gzip
+import io
 import os
 import requests
-from svglib.svglib import svg2rlg
-from reportlab.graphics import renderPDF
-from PyPDF2 import PdfMerger
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+''' 课件页面控制台执行以下代码：
+var documentParams = new URLSearchParams(document.querySelector("#edmPage").src);
+console.info('projectId: ', documentParams.get("appid"));
+console.info('documentId: ', documentParams.get("docId"));
+console.info('authorizationToken: ', documentParams.get("authToken"));
+copy(`projectId = '${documentParams.get("appid")}'
+documentId = '${documentParams.get("docId")}'
+authorizationToken = '${documentParams.get("authToken")}'
+savePath = './课件/'`);
+console.info('----- Copied to clipboard! -----');
+'''
 
-projectId = '____PROJECT_ID_HERE____'
-documentId = '____DOCUMENT_ID_HERE____'
-authorizationToken = '____AUTHORIZATION_TOKEN_HERE____'
-savePath = './snow_downloads/'
+#替换这里
+projectId = '881715bf5fd14684a8e95f6a904f8...'
+documentId = 'M1T9A107N1038113890187407...'
+authorizationToken = 'security:...'
+#替换这里
 
-
+savePath = './课件/'
 
 requestHeaders = {
     'Accept': '*/*',
@@ -28,14 +33,11 @@ requestHeaders = {
     'Content-Type': 'application/json',
     'EDM-Authorization': authorizationToken,
     'Pragma': 'no-cache',
-    'Referer': 'https://learning.huaweils.com/edm3client/static/index.html?lang=zh_CN&showDownload=hide&appid=snow_downloader',
+    'Referer': 'https://cn.elearning.huawei.com/',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36',
-    'sec-ch-ua': '"Chromium";v="104", " Not A;Brand";v="99", "Google Chrome";v="104"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
+    'User-Agent': 'Mozilla/5.0',
 }
 
 requestParams = {
@@ -45,24 +47,18 @@ requestParams = {
     'docFormat': '',
     'X-HW-ID': '',
     'X-HW-APPKEY': '',
-    'X-IAM-SECRET': '',
-    'X-IAM-ACCOUNT': '',
-    'X-HIC-Info': '',
-    'userId': '',
 }
 
 def getDocumentParameters():
-    url = 'https://learning.huaweils.com/edm/projects/' + projectId + '/previewer/documents/' + documentId
-
-    response = requests.get(url, params = requestParams, headers = requestHeaders)
-    if(response.status_code == 200):
+    url = f'https://cn.elearning.huawei.com/edm/projects/{projectId}/previewer/documents/{documentId}'
+    response = requests.get(url, params=requestParams, headers=requestHeaders)
+    if response.status_code == 200:
         return response.json()
     else:
         raise Exception('getDocumentParameters failed: ' + response.text)
 
-
 def getDocumentSpecifiedPage(pageNum, totalPage):
-    url = 'https://learning.huaweils.com/edm/projects/' + projectId + '/previewer/documents/' + documentId
+    url = f'https://cn.elearning.huawei.com/edm/projects/{projectId}/previewer/documents/{documentId}'
     
     dataToPost = {
         'docFormat': 'src',
@@ -74,45 +70,33 @@ def getDocumentSpecifiedPage(pageNum, totalPage):
         'totalPage': totalPage,
     }
 
-    response = requests.post(url, params = requestParams, headers = requestHeaders, json = dataToPost)
+    response = requests.post(url, params=requestParams, headers=requestHeaders, json=dataToPost)
     if response.status_code == 200:
         return response
     else:
-        raise Exception('getDocumentSpecifiedPage failed: ' + response.text)
+        raise Exception(f'getDocumentSpecifiedPage failed for page {pageNum}: ' + response.text)
 
-
-def savePageToDisk(pageContent, outputSvgFileName):
-    with open(outputSvgFileName, 'wb') as svgOutputFile:
-        svgOutputFile.write(pageContent)
-        return outputSvgFileName
-
-
-def convertSvgToPdf(svgFileName, outputPdfFileName):
-    drawing = svg2rlg(svgFileName, resolve_entities = False)
-    renderPDF.drawToFile(drawing, outputPdfFileName)
+def convertPngToPdf(image_list, outputPdfFileName):
+    if image_list:
+        image_list[0].save(outputPdfFileName, save_all=True, append_images=image_list[1:])
     return outputPdfFileName
 
-def mergePDFs(pdfList, finalPdfFileName):
-    merger = PdfMerger()
-    for pdf in pdfList:
-        merger.append(pdf)
-    merger.write(finalPdfFileName)
-    merger.close()
+def process_page(currentPage, totalPage):
+    try:
+        pageResponse = getDocumentSpecifiedPage(currentPage, totalPage)
+        suffixType = pageResponse.headers['Content-Disposition'].split('.')[-1]
+        if suffixType == 'png':
+            img = Image.open(io.BytesIO(pageResponse.content))
+            if img.mode == "RGBA":
+                img = img.convert("RGB") 
+            return (currentPage, img)
+        else:
+            raise Exception(f'Unknown suffix type: {suffixType}')
+    except Exception as e:
+        print(f"Failed to process page {currentPage}: {e}")
+        return None
 
 if __name__ == '__main__':
-    print(r'''
-      ___           ___           ___           ___     
-     /\  \         /\__\         /\  \         /\__\    
-    /::\  \       /::|  |       /::\  \       /:/ _/_   
-   /:/\ \  \     /:|:|  |      /:/\:\  \     /:/ /\__\  
-  _\:\~\ \  \   /:/|:|  |__   /:/  \:\  \   /:/ /:/ _/_ 
- /\ \:\ \ \__\ /:/ |:| /\__\ /:/__/ \:\__\ /:/_/:/ /\__\
- \:\ \:\ \/__/ \/__|:|/:/  / \:\  \ /:/  / \:\/:/ /:/  /
-  \:\ \:\__\       |:/:/  /   \:\  /:/  /   \::/_/:/  / 
-   \:\/:/  /       |::/  /     \:\/:/  /     \:\/:/  /  
-    \::/  /        /:/  /       \::/  /       \::/  /   
-     \/__/         \/__/         \/__/         \/__/    
-    ''')
     print('-------------- Download Started --------------')
     print('Project ID: ' + projectId)
     print('Document ID: ' + documentId)
@@ -120,7 +104,7 @@ if __name__ == '__main__':
     try:
         docParams = getDocumentParameters()
         totalPage = docParams['totalPage']
-        print('totalPage: ' + str(totalPage))
+        print(f'totalPage: {totalPage}')
 
         containerDir = savePath + documentId + '_' + datetime.datetime.now().strftime('%Y%m%d%H%M%S') + '/'
         if not os.path.exists(containerDir):
@@ -128,27 +112,29 @@ if __name__ == '__main__':
         print('The document files will be saved to: ' + containerDir)
 
         pdfFileList = []
-        for currentPage in range(1, totalPage + 1):
-            pageResponse = getDocumentSpecifiedPage(currentPage, totalPage)
-            suffixType = pageResponse.headers['Content-Disposition'].split('.')[-1]
-            if suffixType == 'gz':
-                svgFileName = savePageToDisk(gzip.decompress(pageResponse.content), containerDir + str(currentPage) + '.svg')
-                pdfFileName = convertSvgToPdf(svgFileName, containerDir + str(currentPage) + '.pdf')
-                pdfFileList.append(pdfFileName)
-            elif suffixType == 'svg':
-                svgFileName = savePageToDisk(pageResponse.content, containerDir + str(currentPage) + '.svg')
-                pdfFileName = convertSvgToPdf(svgFileName, containerDir + str(currentPage) + '.pdf')
-                pdfFileList.append(pdfFileName)
-            elif suffixType == 'pdf':
-                pdfFileName = savePageToDisk(pageResponse.content, containerDir + str(currentPage) + '.pdf')
-                pdfFileList.append(pdfFileName)
-            else:
-                raise Exception('Unknown suffix type: ' + suffixType)
-            print(f'Retrieve Page {currentPage} of {totalPage}...  OK')
+        image_list = []
 
-        finalPdfFileName = containerDir + documentId + '.pdf'
-        print('Merging PDF files to: ' + finalPdfFileName)
-        mergePDFs(pdfFileList, finalPdfFileName)
+        # 使用线程池并发下载页面
+        with ThreadPoolExecutor(max_workers=50) as executor:  # 调整并发线程数
+            futures = {executor.submit(process_page, page, totalPage): page for page in range(1, totalPage + 1)}
+            for future in as_completed(futures):
+                page = futures[future]
+                try:
+                    result = future.result()
+                    if result: 
+                        image_list.append(result)
+                    print(f'Page {page} processed successfully.')
+                except Exception as e:
+                    print(f'Page {page} generated an exception: {e}')
+        
+        image_list.sort(key=lambda x: x[0])
+        image_list = [img for _, img in image_list]
+
+        if image_list:
+            pngPdfFileName = containerDir + documentId + '_png.pdf'
+            print(f'Converting PNGs to PDF: {pngPdfFileName}')
+            convertPngToPdf(image_list, pngPdfFileName)
+            pdfFileList.append(pngPdfFileName)
 
         print('-------------- Download Finished --------------')
 
