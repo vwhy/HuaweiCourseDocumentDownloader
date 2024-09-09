@@ -1,5 +1,8 @@
 # HuaweiCourseDocumentDownloader
-Dump document from `learning.huaweils.com/course/` 
+Dump document from `cn.elearning.huawei.com` 
+
+### 1.更新适配最新华为培训
+### 2.合并生成pdf文件
 
 ## Installation
 ```bash
