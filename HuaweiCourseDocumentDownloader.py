@@ -12,8 +12,7 @@ console.info('documentId: ', documentParams.get("docId"));
 console.info('authorizationToken: ', documentParams.get("authToken"));
 copy(`projectId = '${documentParams.get("appid")}'
 documentId = '${documentParams.get("docId")}'
-authorizationToken = '${documentParams.get("authToken")}'
-savePath = './课件/'`);
+authorizationToken = '${documentParams.get("authToken")}'`);
 console.info('----- Copied to clipboard! -----');
 '''
 
